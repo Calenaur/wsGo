@@ -3,7 +3,6 @@ package server
 import (
 	"fmt"
 	"net"
-	"sync"
 
 	"github.com/Calenaur/wsGo/client"
 )
@@ -44,8 +43,7 @@ func (s *Server) Cleanup() {
 	}
 }
 
-func (s *Server) Connect(ip string, port int, wg *sync.WaitGroup) {
-	defer wg.Done()
+func (s *Server) Start(ip string, port int) {
 	sock, err := net.Listen("tcp", fmt.Sprint(ip, ":", port))
 	if err != nil {
 		s.Connected = false
