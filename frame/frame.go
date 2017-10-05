@@ -82,7 +82,9 @@ func (f *Frame) ToBytes() []byte {
 	} else {
 		buf.WriteByte(b | byte(f.Length))
 	}
-	buf.Write(f.Mask)
+	if f.Masked {
+		buf.Write(f.Mask)
+	}
 	buf.Write(f.Data)
 	return buf.Bytes()
 }
