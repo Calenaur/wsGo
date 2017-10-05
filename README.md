@@ -2,7 +2,7 @@
 A websocket server implentation written in Golang
 ## Installation
 ```bash
-go get github.com/Calenaur/wsGo
+go get -d github.com/Calenaur/wsGo
 ```
 ## Usage
 ```go
