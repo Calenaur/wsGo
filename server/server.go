@@ -57,8 +57,10 @@ func (s *Server) Start(ip string, port int, config *tls.Config) {
 	for {
 		conn, err := sock.Accept()
 		if err != nil {
+			fmt.Println(err)
+		} else {
+			go s.HandleConnection(&conn)
 		}
-		go s.HandleConnection(&conn)
 	}
 	s.Connected = false
 }
