@@ -48,9 +48,6 @@ func (c *Client) Handshake() {
 		result := s.Sum(nil)
 		hash = base64.StdEncoding.EncodeToString(result)
 	}
-	if origin, ok := h["Origin"]; !(ok && origin == "https://calenaur.com") {
-		return
-	}
 	c.acceptKey(hash)
 	go c.listen()
 }
