@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 
@@ -8,26 +9,21 @@ import (
 )
 
 type Server struct {
-	IdIndex          int
-	MaxClients       int
-	MaxMessageSize   int
-	MaxHandshakeTime int
-	LastUID          int
-	Clients          []*client.Client
-	Ip               string
-	Port             int
-	Connected        bool
-	EventListeners   []client.EventListener
+	IdIndex        int
+	LastUID        int
+	Clients        []*client.Client
+	Ip             string
+	Port           int
+	Connected      bool
+	EventListeners []client.EventListener
 }
 
-func New(maxClients int, maxMessageSize int, maxHandshakeTime int) *Server {
-	return &Server{0, maxClients, maxMessageSize, maxHandshakeTime, 0, []*client.Client{}, "", 0, false, nil}
+func New() *Server {
+	return &Server{0, 0, []*client.Client{}, "", 0, false, nil}
 }
 
 func (s *Server) AddClient(client *client.Client) {
-	if len(s.Clients) < s.MaxClients {
-		s.Clients = append(s.Clients, client)
-	}
+	s.Clients = append(s.Clients, client)
 }
 
 func (s *Server) AddListener(el client.EventListener) {
@@ -43,8 +39,14 @@ func (s *Server) Cleanup() {
 	}
 }
 
-func (s *Server) Start(ip string, port int) {
-	sock, err := net.Listen("tcp", fmt.Sprint(ip, ":", port))
+func (s *Server) Start(ip string, port int, config *tls.Config) {
+	var sock net.Listener
+	var err error
+	if config != nil {
+		sock, err = tls.Listen("tcp", fmt.Sprint(ip, ":", port), config)
+	} else {
+		sock, err = net.Listen("tcp", fmt.Sprint(ip, ":", port))
+	}
 	if err != nil {
 		s.Connected = false
 		return
