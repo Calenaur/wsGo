@@ -4,7 +4,7 @@ A websocket server implentation written in Golang
 ```bash
 go get -d github.com/Calenaur/wsGo
 ```
-## Usage
+## Example
 ```go
 package main
 
