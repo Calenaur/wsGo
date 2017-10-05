@@ -1,7 +1,11 @@
-# wsGo
+## wsGo
 A websocket server implentation written in Golang
-
-```go 
+## Installation
+```bash
+go get github.com/Calenaur/wsGo
+```
+## Usage
+```go
 package main
 
 import (
