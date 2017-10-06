@@ -65,7 +65,6 @@ func (c *Client) listen() {
 		fb.Write(b)
 		if fb.Available != 0 {
 			f := fb.TakeFrame()
-			fmt.Println("Frame recieved:", f.Opcode)
 			switch f.Opcode {
 			case frame.OPCODE_CONT:
 			case frame.OPCODE_TEXT:
@@ -76,7 +75,7 @@ func (c *Client) listen() {
 				c.RaiseDisconnect()
 			case frame.OPCODE_PING:
 				r := frame.NewFromBinary(frame.OPCODE_PONG, []byte{})
-				rw.Write(r.ToBytes())
+				rw.Write(r.Bytes())
 				rw.Flush()
 			case frame.OPCODE_PONG:
 			}
@@ -129,7 +128,7 @@ func (c *Client) RaiseDisconnect() {
 func (c *Client) Send(f *frame.Frame) {
 	conn := *c.conn
 	w := bufio.NewWriter(conn)
-	w.Write(f.ToBytes())
+	w.Write(f.Bytes())
 	w.Flush()
 }
 
