@@ -1,7 +1,7 @@
 package framebuilder
 
 import (
-	"encoding/binary"
+	"bytes"
 
 	"github.com/Calenaur/wsGo/frame"
 )
@@ -12,18 +12,22 @@ const STAGE_LENGTH64 = 2
 const STAGE_MASK = 3
 const STAGE_DATA = 4
 
+const BYTE_OPCODE = 0
+const BYTE_LENGTH = 1
+
 type FrameBuilder struct {
 	Index           uint64
 	StageStartIndex uint64
 	Available       int
 	Stage           int
-	buffer          []byte
+	buffer          *bytes.Buffer
 	frames          []*frame.Frame
 	current         *frame.Frame
+	finished        bool
 }
 
 func New() *FrameBuilder {
-	return &FrameBuilder{0, 0, 0, 0, []byte{}, []*frame.Frame{}, frame.New()}
+	return &FrameBuilder{0, 0, 0, 0, bytes.NewBuffer([]byte{}), []*frame.Frame{}, frame.New(), false}
 }
 
 func (fb *FrameBuilder) Write(b byte) {
@@ -31,81 +35,102 @@ func (fb *FrameBuilder) Write(b byte) {
 	switch fb.Stage {
 	case STAGE_BASE:
 		switch fb.Index {
-		case 0:
-			f.Fin = b&128 == 128
-			f.Rsv1 = b&64 == 64
-			f.Rsv2 = b&32 == 32
-			f.Rsv3 = b&16 == 16
-			f.Opcode = int(b & 15)
-		case 1:
-			f.Masked = b&128 == 128
-			f.Length = uint64(b & 127)
-			if f.Length < 126 {
-				if f.Masked {
-					fb.Stage = STAGE_MASK
-				} else {
-					fb.Stage = STAGE_DATA
-				}
-			} else if f.Length == 126 {
-				fb.Stage = STAGE_LENGTH16
-			} else if f.Length == 127 {
-				fb.Stage = STAGE_LENGTH64
-			}
-			fb.StageStartIndex = fb.Index
-			fb.clearBuffer()
+		case BYTE_OPCODE:
+			f.ParseFlags(b).ParseOpcode(b)
+		case BYTE_LENGTH:
+			fb.handleLength(f, b)
 		}
 	case STAGE_LENGTH16:
-		fb.buffer = append(fb.buffer, b)
-		if fb.Index >= fb.StageStartIndex+2 {
-			f.Length = uint64(binary.LittleEndian.Uint16(fb.buffer))
-			if f.Masked {
-				fb.Stage = STAGE_MASK
-			} else {
-				fb.Stage = STAGE_DATA
-			}
-			fb.StageStartIndex = fb.Index
-			fb.clearBuffer()
-		}
+		fb.handleLength16(f, b)
 	case STAGE_LENGTH64:
-		fb.buffer = append(fb.buffer, b)
-		if fb.Index >= fb.StageStartIndex+8 {
-			f.Length = binary.LittleEndian.Uint64(fb.buffer)
-			if f.Masked {
-				fb.Stage = STAGE_MASK
-			} else {
-				fb.Stage = STAGE_DATA
-			}
-			fb.StageStartIndex = fb.Index
-			fb.clearBuffer()
-		}
+		fb.handleLength64(f, b)
 	case STAGE_MASK:
-		fb.buffer = append(fb.buffer, b)
-		if fb.Index >= fb.StageStartIndex+4 {
-			if f.Length == 0 {
-				f.Data = []byte{}
-				fb.finish(f)
-				return
-			}
-			f.Mask = fb.buffer
-			fb.Stage = STAGE_DATA
-			fb.StageStartIndex = fb.Index
-			fb.clearBuffer()
-		}
+		fb.handleMask(f, b)
 	case STAGE_DATA:
+		fb.handleData(f, b)
+	}
+	if fb.finished {
+		fb.finished = false
+		return
+	}
+	fb.Index++
+}
+
+func (fb *FrameBuilder) handleLength(f *frame.Frame, b byte) {
+	f.ParseMask(b).ParseLength(b)
+	if f.Length < 126 {
+		if f.Masked {
+			fb.Stage = STAGE_MASK
+		} else {
+			fb.Stage = STAGE_DATA
+		}
+	} else if f.Length == 126 {
+		fb.Stage = STAGE_LENGTH16
+	} else if f.Length == 127 {
+		fb.Stage = STAGE_LENGTH64
+	}
+	fb.StageStartIndex = fb.Index
+	fb.buffer.Reset()
+}
+
+func (fb *FrameBuilder) handleLength16(f *frame.Frame, b byte) {
+	fb.buffer.WriteByte(b)
+	if fb.Index >= fb.StageStartIndex+2 {
+		f.ParseLength16(fb.buffer.Bytes())
+		if f.Masked {
+			fb.Stage = STAGE_MASK
+		} else {
+			fb.Stage = STAGE_DATA
+		}
+		fb.StageStartIndex = fb.Index
+		fb.buffer.Reset()
+	}
+}
+
+func (fb *FrameBuilder) handleLength64(f *frame.Frame, b byte) {
+	fb.buffer.WriteByte(b)
+	if fb.Index >= fb.StageStartIndex+8 {
+		f.ParseLength64(fb.buffer.Bytes())
+		if f.Masked {
+			fb.Stage = STAGE_MASK
+		} else {
+			fb.Stage = STAGE_DATA
+		}
+		fb.StageStartIndex = fb.Index
+		fb.buffer.Reset()
+	}
+}
+
+func (fb *FrameBuilder) handleMask(f *frame.Frame, b byte) {
+	fb.buffer.WriteByte(b)
+	if fb.Index >= fb.StageStartIndex+4 {
 		if f.Length == 0 {
 			f.Data = []byte{}
 			fb.finish(f)
 			return
-		} else {
-			fb.buffer = append(fb.buffer, b)
-			if fb.Index >= fb.StageStartIndex+f.Length {
-				f.Data = fb.buffer
-				fb.finish(f)
-				return
-			}
+		}
+		f.Mask = make([]byte, fb.buffer.Len())
+		copy(f.Mask, fb.buffer.Bytes())
+		fb.Stage = STAGE_DATA
+		fb.StageStartIndex = fb.Index
+		fb.buffer.Reset()
+	}
+}
+
+func (fb *FrameBuilder) handleData(f *frame.Frame, b byte) {
+	if f.Length == 0 {
+		f.Data = []byte{}
+		fb.finish(f)
+		return
+	} else {
+		fb.buffer.WriteByte(b)
+		if fb.Index >= fb.StageStartIndex+f.Length {
+			f.Data = make([]byte, fb.buffer.Len())
+			copy(f.Data, fb.buffer.Bytes())
+			fb.finish(f)
+			return
 		}
 	}
-	fb.Index++
 }
 
 func (fb *FrameBuilder) finish(f *frame.Frame) {
@@ -115,6 +140,7 @@ func (fb *FrameBuilder) finish(f *frame.Frame) {
 	fb.frames = append(fb.frames, f)
 	fb.Available++
 	fb.Clear()
+	fb.finished = true
 }
 
 func (fb *FrameBuilder) TakeFrame() *frame.Frame {
@@ -127,15 +153,11 @@ func (fb *FrameBuilder) TakeFrame() *frame.Frame {
 	return f
 }
 
-func (fb *FrameBuilder) clearBuffer() {
-	fb.buffer = []byte{}
-}
-
 func (fb *FrameBuilder) Clear() {
 	fb.Index = 0
 	fb.StageStartIndex = 0
 	fb.Stage = STAGE_BASE
-	fb.buffer = []byte{}
+	fb.buffer = bytes.NewBuffer([]byte{})
 	fb.current = frame.New()
 }
 
@@ -144,7 +166,8 @@ func (fb *FrameBuilder) Reset() {
 	fb.StageStartIndex = 0
 	fb.Available = 0
 	fb.Stage = STAGE_BASE
-	fb.buffer = []byte{}
+	fb.buffer = bytes.NewBuffer([]byte{})
 	fb.frames = []*frame.Frame{}
 	fb.current = frame.New()
+	fb.finished = false
 }

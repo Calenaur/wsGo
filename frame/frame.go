@@ -48,7 +48,46 @@ func NewFromBinary(opcode int, data []byte) *Frame {
 	return f
 }
 
-func (f *Frame) ToBytes() []byte {
+func (f *Frame) ParseFlags(b byte) *Frame {
+	f.Fin = b&128 == 128
+	f.Rsv1 = b&64 == 64
+	f.Rsv2 = b&32 == 32
+	f.Rsv3 = b&16 == 16
+	return f
+}
+
+func (f *Frame) ParseOpcode(b byte) *Frame {
+	f.Opcode = int(b & 15)
+	return f
+}
+
+func (f *Frame) ParseMask(b byte) *Frame {
+	f.Masked = b&128 == 128
+	return f
+}
+
+func (f *Frame) ParseLength(b byte) *Frame {
+	f.Length = uint64(b & 127)
+	return f
+}
+func (f *Frame) ParseLength16(b []byte) *Frame {
+	f.Length = uint64(binary.LittleEndian.Uint16(Reverse(b)))
+	return f
+}
+func (f *Frame) ParseLength64(b []byte) *Frame {
+	f.Length = binary.LittleEndian.Uint64(Reverse(b))
+	return f
+}
+
+func Reverse(b []byte) []byte {
+	for i := len(b)/2 - 1; i >= 0; i-- {
+		opp := len(b) - 1 - i
+		b[i], b[opp] = b[opp], b[i]
+	}
+	return b
+}
+
+func (f *Frame) Bytes() []byte {
 	var b byte
 	buf := bytes.NewBuffer(nil)
 	if f.Fin {
@@ -70,13 +109,15 @@ func (f *Frame) ToBytes() []byte {
 		b = 0
 	}
 	if f.Length > 125 && f.Length <= 65535 {
-		a := make([]byte, 8)
+		a := make([]byte, 2)
 		binary.LittleEndian.PutUint16(a, uint16(f.Length))
+		a = Reverse(a)
 		buf.WriteByte(b | 126)
 		buf.Write(a)
 	} else if f.Length > 65535 {
-		a := make([]byte, 2)
+		a := make([]byte, 8)
 		binary.LittleEndian.PutUint64(a, f.Length)
+		a = Reverse(a)
 		buf.WriteByte(b | 127)
 		buf.Write(a)
 	} else {
